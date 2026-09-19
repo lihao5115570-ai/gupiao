@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>持仓监控</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>持仓监控</h1>
+      <p>实时监控 · 及时预警 · 仅供参考</p>
+    </div>
+    <div class="header-actions">
+      <span class="secure-mark" title="登录保护">安全</span>
+      <button id="refresh" type="button">刷新</button>
+    </div>
+  </header>
+  <main>
+    <section class="summary" aria-label="持仓摘要">
+      <span id="holding-count">持仓总数：--</span>
+      <span>按风险从高到低排序</span>
+      <time id="updated-at">更新时间 --</time>
+    </section>
+    <section id="positions" class="position-list" aria-live="polite">
+      <p class="empty">正在读取持仓数据…</p>
+    </section>
+    <section class="alerts-section">
+      <div class="section-title"><h2>最近提醒</h2><a href="/logout">退出登录</a></div>
+      <ol id="alerts" class="alert-list"><li class="empty">暂无提醒</li></ol>
+    </section>
+  </main>
+  <footer>仅为技术面监控提示，不构成任何投资建议</footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>

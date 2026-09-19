@@ -1,0 +1,3 @@
+# Core features use only Python's standard library.
+# Pillow is optional and only used to save a screenshot of a visible THS window.
+Pillow>=10.0

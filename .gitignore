@@ -1,0 +1,30 @@
+# Python cache and local runtime files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Local private data: positions, settings, API keys, alerts and backtest cache
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Local screenshots and generated output
+screenshots/
+*.log
+*.tmp
+
+# Virtual environments and editor files
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+
+# Local secret/config files, if created later
+.env
+.env.*
+secrets.*
+local_settings.*

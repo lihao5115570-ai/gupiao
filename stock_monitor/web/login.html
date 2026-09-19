@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>登录 · 持仓监控</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="login-page">
+  <main class="login-shell">
+    <div class="lock" aria-hidden="true">●</div>
+    <h1>持仓监控</h1>
+    <h2>请输入密码</h2>
+    <p>仅限本人查看您的持仓信息</p>
+    <form action="/login" method="post">
+      <label for="password">访问密码</label>
+      <input id="password" name="password" type="password" minlength="8" required autocomplete="current-password" placeholder="请输入至少8位密码">
+      <button type="submit">登录查看</button>
+    </form>
+    <small>数据保存在您的电脑上，网页仅提供只读查看</small>
+  </main>
+</body>
+</html>
