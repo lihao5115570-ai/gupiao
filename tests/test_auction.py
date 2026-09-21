@@ -6,7 +6,7 @@ import queue
 from pathlib import Path
 from datetime import datetime
 
-from stock_monitor.auction import AuctionEngine, REQUIRED_PATH, apply_crosscheck, apply_data_quality_gate, build_candidate_pool, score_auction_paths
+from stock_monitor.auction import AuctionEngine, REQUIRED_PATH, apply_crosscheck, apply_data_quality_gate, build_candidate_pool, manual_auction_codes, score_auction_paths
 from stock_monitor.database import Database
 
 
@@ -73,6 +73,15 @@ class AuctionDecisionTests(unittest.TestCase):
             "auction_pool_max_size": "500",
         })
         self.assertEqual(["600001", "600002"], [row["code"] for row in pool])
+
+    def test_manual_codes_are_normalized_and_negative_stock_remains_visible(self):
+        settings = dict(self.settings, auction_manual_codes="600001， 000002;bad")
+        self.assertEqual({"600001", "000002"}, manual_auction_codes(settings))
+        rows = make_path("600001", "指定样本", "测试板块", [-1.0] * 7) + self._sector_peers()
+        result = {row["code"]: row for row in score_auction_paths(rows, settings)}["600001"]
+        self.assertTrue(result["specified"])
+        self.assertEqual("放弃", result["action"])
+        self.assertTrue(any("9:25锁单涨幅" in reason for reason in result["elimination_reasons"]))
 
     def test_stable_resonant_candidate_is_orderable(self):
         rows = make_path("600001", "样本甲", "测试板块", [2.0, 2.2, 2.4, 2.5, 2.6, 2.7, 2.7]) + self._sector_peers()

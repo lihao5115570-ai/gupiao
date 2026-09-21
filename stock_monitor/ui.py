@@ -201,6 +201,15 @@ class StockMonitorApp:
             ttk.Checkbutton(option_box, text=label, variable=variable).pack(side="left", padx=(0, 10))
         ttk.Button(config, text="保存竞价设置", style="Accent.TButton", command=self.save_auction_settings).grid(row=3, column=4, sticky="e", padx=8, pady=(0, 8))
 
+        specified_bar = tk.Frame(self.auction_tab, bg="#f2f7f5", highlightbackground="#cfe0db", highlightthickness=1)
+        specified_bar.pack(fill="x", padx=16, pady=(0, 8))
+        tk.Label(specified_bar, text="指定股票竞价采集", bg="#f2f7f5", fg="#174f43", font=("Microsoft YaHei UI", 10, "bold")).pack(side="left", padx=(10, 8), pady=8)
+        self.auction_manual_codes_var = tk.StringVar(value=settings.get("auction_manual_codes", ""))
+        ttk.Entry(specified_bar, textvariable=self.auction_manual_codes_var, width=34).pack(side="left", pady=8)
+        ttk.Button(specified_bar, text="保存并加入采集", style="Accent.TButton", command=self.save_manual_auction_codes).pack(side="left", padx=8, pady=8)
+        ttk.Button(specified_bar, text="清空", command=self.clear_manual_auction_codes).pack(side="left", pady=8)
+        tk.Label(specified_bar, text="支持多个6位代码，用逗号分隔；请在9:20前加入", bg="#f2f7f5", fg="#64726d").pack(side="left", padx=10)
+
         filter_bar = tk.Frame(self.auction_tab, bg="#ffffff")
         filter_bar.pack(fill="x", padx=16, pady=(0, 8))
         self.auction_summary_var = tk.StringVar(value="尚未生成今日锁单结果")
@@ -213,15 +222,15 @@ class StockMonitorApp:
 
         table_frame = tk.Frame(self.auction_tab, bg="#ffffff")
         table_frame.pack(fill="both", expand=True, padx=16)
-        columns = ("rank", "quality", "code", "name", "industry", "lock", "peak", "drawdown", "retention", "amount", "sector", "false", "pullback", "action", "score", "fill", "price", "no_buy")
+        columns = ("rank", "source", "quality", "code", "name", "industry", "lock", "peak", "drawdown", "retention", "amount", "sector", "false", "pullback", "action", "score", "fill", "price", "no_buy")
         self.auction_tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse", height=11)
         headings = {
-            "rank": "排名", "quality": "数据", "code": "代码", "name": "名称", "industry": "板块", "lock": "9:25涨幅",
+            "rank": "排名", "source": "来源", "quality": "数据", "code": "代码", "name": "名称", "industry": "板块", "lock": "9:25涨幅",
             "peak": "最高涨幅", "drawdown": "回撤", "retention": "留存率", "amount": "竞价额",
             "sector": "板块共振", "false": "虚假风险", "pullback": "冲高回落", "action": "建议动作",
             "score": "等级", "fill": "规则估计", "price": "建议挂单价", "no_buy": "不买条件",
         }
-        widths = {"rank": 48, "quality": 66, "code": 72, "name": 96, "industry": 96, "lock": 78, "peak": 78, "drawdown": 68, "retention": 68, "amount": 82, "sector": 96, "false": 70, "pullback": 78, "action": 74, "score": 62, "fill": 72, "price": 112, "no_buy": 310}
+        widths = {"rank": 48, "source": 58, "quality": 66, "code": 72, "name": 96, "industry": 96, "lock": 78, "peak": 78, "drawdown": 68, "retention": 68, "amount": 82, "sector": 96, "false": 70, "pullback": 78, "action": 74, "score": 62, "fill": 72, "price": 112, "no_buy": 310}
         for col in columns:
             self.auction_tree.heading(col, text=headings[col])
             self.auction_tree.column(col, width=widths[col], minwidth=widths[col], anchor="w" if col in ("name", "industry", "price", "no_buy") else "center", stretch=col == "no_buy")
@@ -394,6 +403,37 @@ class StockMonitorApp:
         self.auction_toggle_button.configure(text="启动自动竞价" if enabled else "暂停自动竞价")
         self.auction_status_var.set("自动竞价已暂停" if enabled else "自动竞价已启动，等待下一个采样点")
 
+    @staticmethod
+    def _validated_manual_codes(raw: str) -> list[str]:
+        for separator in ("，", ";", "；", " ", "\n", "\t"):
+            raw = raw.replace(separator, ",")
+        parts = [part.strip() for part in raw.split(",") if part.strip()]
+        invalid = [code for code in parts if len(code) != 6 or not code.isdigit()]
+        if invalid:
+            raise ValueError(f"股票代码必须是6位数字：{invalid[0]}")
+        return list(dict.fromkeys(parts))
+
+    def save_manual_auction_codes(self) -> None:
+        try:
+            codes = self._validated_manual_codes(self.auction_manual_codes_var.get())
+            if not codes:
+                raise ValueError("请至少输入一个6位股票代码")
+        except ValueError as exc:
+            messagebox.showerror("指定竞价采集", str(exc))
+            return
+        value = ",".join(codes)
+        self.auction_manual_codes_var.set(value)
+        self.db.set_setting("auction_manual_codes", value)
+        self.auction.wake()
+        self.auction_status_var.set(f"已指定 {len(codes)} 只股票；将从下一个采样点开始记录，完整分析需覆盖9:20-9:25")
+        messagebox.showinfo("指定竞价采集", "已加入连续采集。请保持软件运行；若9:20后才加入，今日路径会不完整并禁止挂单。")
+
+    def clear_manual_auction_codes(self) -> None:
+        self.auction_manual_codes_var.set("")
+        self.db.set_setting("auction_manual_codes", "")
+        self.auction.wake()
+        self.auction_status_var.set("已清空指定股票；核心池自动采集不受影响")
+
     def save_auction_settings(self) -> None:
         try:
             amount_wan = float(self.auction_setting_vars["auction_min_amount"].get())
@@ -457,7 +497,7 @@ class StockMonitorApp:
             score = float(row.get("score") or 0)
             grade = "A" if action == "竞价小仓" else "试验" if action == "试验观察" else "B" if action != "放弃" else "C"
             values = (
-                row.get("rank"), row.get("data_quality", "正常"), row.get("code"), row.get("name"), row.get("industry"),
+                row.get("rank"), "指定" if row.get("specified") else "筛选", row.get("data_quality", "正常"), row.get("code"), row.get("name"), row.get("industry"),
                 f"{float(row.get('lock_pct') or 0):+.2f}%", f"{float(row.get('peak_pct') or 0):+.2f}%",
                 f"{float(row.get('drawdown') or 0):.2f}%", f"{float(row.get('retention') or 0):.0%}",
                 f"{float(row.get('auction_amount') or 0) / 10000:.0f}万",
@@ -488,9 +528,9 @@ class StockMonitorApp:
         reasons = "；".join(row.get("elimination_reasons") or row.get("warnings") or ["锁单路径稳定，未触发硬淘汰"])
         zones_text = zone_summary(row) if row.get("trade_zones") else "三区间：尚未计算"
         self.auction_detail_var.set(
-            f"{row.get('name')} {row.get('code')}｜{path_text}\n"
+            f"{row.get('name')} {row.get('code')}｜{'指定采集' if row.get('specified') else '核心池筛选'}｜{path_text}\n"
             f"板块：{row.get('industry')}，板块平均 {float(row.get('sector_pct') or 0):+.2f}%，正竞价 {row.get('sector_positive_count')} 只；前排：{row.get('sector_leaders') or '--'}\n"
-            f"结论：{row.get('action')}｜{zones_text}\n"
+            f"挂单分析：{row.get('action')}｜{'允许按规则执行' if row.get('can_order') else '当前不挂单'}｜参考：{row.get('suggested_order') or '--'}｜{zones_text}\n"
             f"数据：{row.get('data_quality', '正常')}｜原因：{reasons}｜不买条件：{row.get('no_buy_condition')}"
         )
 

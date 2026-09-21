@@ -222,6 +222,7 @@ DEFAULT_SETTINGS = {
     "web_password_hash": ("", "网页登录密码哈希"),
     "secret_web_token": ("", "网页API Token（DPAPI加密）"),
     "auction_enabled": ("1", "自动运行9:15-9:25竞价采样"),
+    "auction_manual_codes": ("", "强制加入9:20-9:25连续采集的股票代码，逗号分隔"),
     "auction_pool_enabled": ("1", "Infoway免费版启用盘前核心池"),
     "auction_pool_max_size": ("500", "9:20后最多跟踪股票数"),
     "auction_pool_min_size": ("80", "盘前核心池安全下限"),

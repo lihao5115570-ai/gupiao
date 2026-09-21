@@ -54,6 +54,16 @@ SAMPLE_SCHEDULE = (
     ("09:25", clock_time(9, 25, 0)),
 )
 REQUIRED_PATH = ("09:20", "09:21", "09:22", "09:23", "09:24", "09:24:30", "09:25")
+
+
+def manual_auction_codes(settings: dict[str, str]) -> set[str]:
+    """Return validated six-digit codes that must remain in the timed auction path."""
+    raw = str(settings.get("auction_manual_codes") or "")
+    for separator in ("，", ";", "；", " ", "\n", "\t"):
+        raw = raw.replace(separator, ",")
+    return {code for code in (part.strip() for part in raw.split(",")) if len(code) == 6 and code.isdigit()}
+
+
 ACTION_ORDER = {"可挂入": 0, "等回踩": 1, "放弃": 2}
 OUTCOME_SCHEDULE = (
     ("09:30", clock_time(9, 30, 0)),
@@ -682,6 +692,7 @@ def score_auction_paths(snapshot_rows: list[Any], settings: dict[str, str]) -> l
     valid_market = [float(row["auction_pct"]) for row in lock_rows.values() if row.get("auction_pct") is not None]
     market_positive_ratio = sum(1 for value in valid_market if value > 0) / len(valid_market) if valid_market else 0.0
     results = []
+    specified_codes = manual_auction_codes(settings)
 
     for code, points in by_code.items():
         locked = points.get("09:25")
@@ -698,7 +709,7 @@ def score_auction_paths(snapshot_rows: list[Any], settings: dict[str, str]) -> l
         observed = [float(item["auction_pct"]) for item in points.values() if item.get("auction_pct") is not None]
         peak_pct = max(observed) if observed else pct_925
         # The decision table is a candidate history, not a dump of every flat/down stock.
-        if peak_pct <= 0 and pct_925 <= 0:
+        if peak_pct <= 0 and pct_925 <= 0 and code not in specified_codes:
             continue
         drawdown = max(0.0, peak_pct - pct_925)
         retention = pct_925 / peak_pct if peak_pct > 0 else 0.0
@@ -814,6 +825,7 @@ def score_auction_paths(snapshot_rows: list[Any], settings: dict[str, str]) -> l
 
         results.append({
             "rank": 0, "code": code, "name": name, "board": board, "industry": sector,
+            "specified": code in specified_codes,
             "action": action, "can_order": action == "可挂入", "score": score,
             "lock_pct": round(pct_925, 2), "peak_pct": round(peak_pct, 2),
             "drawdown": round(drawdown, 2), "retention": round(retention, 4),
@@ -985,7 +997,8 @@ class AuctionEngine:
             min_pool = max(30, int(_setting_float(settings, "auction_pool_min_size", 80)))
             if len(pool) < min_pool:
                 raise AuctionDataError(f"盘前核心池仅{len(pool)}只，低于安全下限{min_pool}只")
-            self._pool_codes[day] = {str(row["code"]) for row in pool}
+            specified_codes = manual_auction_codes(settings)
+            self._pool_codes[day] = {str(row["code"]) for row in pool} | specified_codes
             self._pool_metadata[day] = {
                 str(row["code"]): {
                     "name": row.get("name"),
@@ -993,12 +1006,12 @@ class AuctionEngine:
                     "market_value": row.get("market_value"),
                     "float_market_value": row.get("float_market_value"),
                 }
-                for row in pool
+                for row in market_rows
             }
             sectors = len({str(row.get("industry") or "") for row in pool})
             self.events.put((
                 "auction_status",
-                f"盘前核心池已就绪：{len(pool)}只/{sectors}个板块｜用时{time.monotonic() - started:.1f}秒｜9:20后只跟踪核心池",
+                f"盘前核心池已就绪：{len(pool)}只/{sectors}个板块｜指定{len(specified_codes)}只｜用时{time.monotonic() - started:.1f}秒",
             ))
         except Exception as exc:
             self._pool_failures[day] += 1
@@ -1032,7 +1045,8 @@ class AuctionEngine:
                 pool_codes = self._pool_codes.get(day)
                 if not pool_codes:
                     raise AuctionDataError("盘前核心池未生成；请在9:18前启动软件")
-                rows = self.provider.fetch_all(pool_codes, self._pool_metadata.get(day))
+                tracked_codes = set(pool_codes) | manual_auction_codes(settings)
+                rows = self.provider.fetch_all(tracked_codes, self._pool_metadata.get(day))
             else:
                 rows = self.provider.fetch_all()
             finished_wall = self._now()
