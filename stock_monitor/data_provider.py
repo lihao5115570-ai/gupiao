@@ -71,7 +71,7 @@ class EastMoneyProvider:
         )
 
     def klines(self, code: str, timeframe: str = "daily", limit: int = 180) -> list[Bar]:
-        klt = {"daily": "101", "60m": "60", "15m": "15"}.get(timeframe)
+        klt = {"daily": "101", "weekly": "102", "60m": "60", "15m": "15"}.get(timeframe)
         if not klt:
             raise ValueError(f"不支持的周期：{timeframe}")
         payload = self._get_json(
@@ -146,11 +146,12 @@ class TencentProvider:
 
     def klines(self, code: str, timeframe: str = "daily", limit: int = 180) -> list[Bar]:
         symbol = self.symbol(code)
-        if timeframe == "daily":
-            params = urllib.parse.urlencode({"param": f"{symbol},day,,,{limit},qfq"})
+        if timeframe in ("daily", "weekly"):
+            period = "day" if timeframe == "daily" else "week"
+            params = urllib.parse.urlencode({"param": f"{symbol},{period},,,{limit},qfq"})
             payload = json.loads(self._read(f"{self.DAILY_URL}?{params}"))
             node = (payload.get("data") or {}).get(symbol) or {}
-            raw = node.get("qfqday") or node.get("day") or []
+            raw = node.get(f"qfq{period}") or node.get(period) or []
         elif timeframe in ("60m", "15m"):
             key = "m60" if timeframe == "60m" else "m15"
             params = urllib.parse.urlencode({"param": f"{symbol},{key},,{limit}"})
@@ -164,7 +165,7 @@ class TencentProvider:
             if len(parts) < 6:
                 continue
             timestamp = str(parts[0])
-            if timeframe != "daily" and len(timestamp) == 12:
+            if timeframe in ("60m", "15m") and len(timestamp) == 12:
                 timestamp = datetime.strptime(timestamp, "%Y%m%d%H%M").strftime("%Y-%m-%d %H:%M")
             bars.append(
                 Bar(timestamp, float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4]),

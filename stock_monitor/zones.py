@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date, datetime, time as clock_time
 from statistics import fmean
 from typing import TYPE_CHECKING
 
@@ -48,6 +49,98 @@ def _round_level(value: float, step: float, upper: bool = False) -> float:
 def _moving_averages(bars: list[Bar]) -> dict[int, float]:
     closes = [bar.close for bar in bars]
     return {period: fmean(closes[-period:]) for period in (5, 10, 20, 30, 60) if len(closes) >= period}
+
+
+def _completed_weekly_bars(bars: list[Bar]) -> list[Bar]:
+    """Exclude a still-forming weekly candle so core zones do not drift each day."""
+    if not bars:
+        return []
+    try:
+        last_day = datetime.strptime(bars[-1].timestamp[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return bars[:-1] if len(bars) > 1 else bars
+    today = date.today()
+    same_week = last_day.isocalendar()[:2] == today.isocalendar()[:2]
+    week_finished = today.weekday() > 4 or (today.weekday() == 4 and datetime.now().time() >= clock_time(15, 5))
+    return bars if not same_week or week_finished else bars[:-1]
+
+
+def _nearest_band(values: list[float], price: float, below: bool) -> tuple[float, float] | None:
+    clean = sorted({round(value, 4) for value in values if value > 0 and (value < price if below else value > price)})
+    if not clean:
+        return None
+    nearest = clean[-2:] if below else clean[:2]
+    if len(nearest) == 1:
+        anchor = nearest[0]
+        return anchor * 0.97, anchor * 1.03
+    low, high = nearest[0], nearest[-1]
+    if high - low > price * 0.15:
+        anchor = high if below else low
+        return anchor * 0.96, anchor * 1.04
+    return low, high
+
+
+def _hybrid_trade_zones(
+    price: float,
+    daily_structure: dict[str, float | None],
+    daily_bars: list[Bar],
+    weekly_bars: list[Bar],
+) -> dict[str, float | str | None] | None:
+    completed = _completed_weekly_bars(weekly_bars)
+    if len(completed) < 20:
+        return None
+    from .indicators import price_structure
+
+    weekly_structure = price_structure(completed)
+    weekly_averages = _moving_averages(completed)
+    support_values = [
+        weekly_structure.get("support"), weekly_structure.get("major_support"),
+        weekly_structure.get("low_5"), weekly_structure.get("low_10"), weekly_structure.get("low_20"),
+        weekly_averages.get(10), weekly_averages.get(20), weekly_averages.get(30),
+    ]
+    pressure_values = [
+        weekly_structure.get("resistance"), weekly_structure.get("major_resistance"),
+        weekly_structure.get("high_5"), weekly_structure.get("high_10"), weekly_structure.get("high_20"),
+        weekly_structure.get("previous_high"), weekly_averages.get(10), weekly_averages.get(20),
+    ]
+    support_band = _nearest_band([float(value) for value in support_values if value], price, below=True)
+    pressure_band = _nearest_band([float(value) for value in pressure_values if value], price, below=False)
+    if not support_band or not pressure_band:
+        return None
+
+    step = _zone_step(price)
+    support_low = _round_level(support_band[0], step)
+    support_high = _round_level(min(support_band[1], price), step, upper=True)
+    pressure_low = _round_level(max(pressure_band[0], price), step)
+    pressure_high = _round_level(pressure_band[1], step, upper=True)
+    daily_support = float(daily_structure.get("support") or support_high)
+    daily_resistance = float(daily_structure.get("resistance") or pressure_low)
+    play_low = _round_level(max(support_high, min(price, daily_support)), step)
+    play_high = _round_level(min(pressure_low, max(price, daily_resistance)), step, upper=True)
+    if play_low >= play_high:
+        play_low, play_high = support_high, pressure_low
+
+    higher_weekly = sorted({float(value) for value in pressure_values if value and float(value) > pressure_high})
+    strong_low = _round_level(higher_weekly[0], step) if higher_weekly else None
+    strong_high = _round_level(higher_weekly[1], step, upper=True) if len(higher_weekly) > 1 else strong_low
+    weekly_date = completed[-1].timestamp[:10]
+    daily_date = daily_bars[-1].timestamp[:10] if daily_bars else "--"
+    ma_text = " / ".join(f"MA{period}周 {value:.2f}" for period, value in weekly_averages.items() if period in (10, 20, 30))
+    return {
+        "support_zone_low": support_low, "support_zone_high": support_high,
+        "play_zone_low": play_low, "play_zone_high": play_high,
+        "pressure_zone_low": pressure_low, "pressure_zone_high": pressure_high,
+        "strong_pressure_low": strong_low, "strong_pressure_high": strong_high,
+        "support_zone": format_zone(support_low, support_high),
+        "play_zone": format_zone(play_low, play_high),
+        "pressure_zone": format_zone(pressure_low, pressure_high),
+        "strong_pressure_zone": format_zone(strong_low, strong_high),
+        "zone_method": "多周期：已完成周K定核心，日K定博弈",
+        "zone_basis": f"周线基准截至 {weekly_date}（{ma_text or '周线结构高低点'}）；日线执行参考截至 {daily_date}。本周未收盘周K不改变核心区。",
+        "zone_weekly_date": weekly_date,
+        "zone_daily_date": daily_date,
+        "zone_timeframe": "weekly_daily_hybrid",
+    }
 
 
 def _strong_impulse(bars: list[Bar], price: float) -> tuple[float, float] | None:
@@ -109,6 +202,7 @@ def _impulse_trade_zones(price: float, bars: list[Bar]) -> dict[str, float | str
         "strong_pressure_zone": format_zone(strong_low, strong_high),
         "zone_method": "急拉结构：均线 + 启动平台 + 成交密集区",
         "zone_basis": basis,
+        "zone_timeframe": "daily_fallback",
         "impulse_low": impulse_low,
         "impulse_high": impulse_high,
     }
@@ -118,7 +212,12 @@ def calculate_trade_zones(
     price: float,
     structure: dict[str, float | None],
     bars: list[Bar] | None = None,
+    weekly_bars: list[Bar] | None = None,
 ) -> dict[str, float | str | None]:
+    if bars and weekly_bars:
+        hybrid = _hybrid_trade_zones(price, structure, bars, weekly_bars)
+        if hybrid:
+            return hybrid
     if bars:
         impulse_zones = _impulse_trade_zones(price, bars)
         if impulse_zones:
@@ -151,8 +250,9 @@ def calculate_trade_zones(
         "play_zone": format_zone(play_low, play_high),
         "pressure_zone": format_zone(pressure_low, pressure_high),
         "strong_pressure_zone": "--",
-        "zone_method": "常规结构：近期支撑压力",
-        "zone_basis": "未检测到近期强急拉波段，按近期高低点和支撑压力估算。",
+        "zone_method": "日线降级：近期支撑压力",
+        "zone_basis": "周K数据不足或暂时不可用，当前按日线近期高低点估算；不应视为稳定周线核心区。",
+        "zone_timeframe": "daily_fallback",
     }
 
 

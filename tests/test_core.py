@@ -81,6 +81,23 @@ class CoreTests(unittest.TestCase):
         self.assertEqual("23.00 - 23.40", zones["strong_pressure_zone"])
         self.assertIn("急拉结构", zones["zone_method"])
 
+    def test_weekly_core_zones_and_daily_execution_are_separated(self):
+        daily = sample_bars(80)
+        weekly = []
+        start = date(2024, 1, 5)
+        for index in range(60):
+            center = 18.0 + (index % 10) * 0.45
+            weekly.append(Bar((start + timedelta(days=index * 7)).isoformat(), center, center + 0.1, center + 1.2, center - 1.0, 5_000_000))
+        price = 21.0
+        first = calculate_trade_zones(price, price_structure(daily), daily, weekly)
+        changed_daily = list(daily)
+        changed_daily[-1] = Bar(changed_daily[-1].timestamp, 24.0, 24.5, 25.0, 23.5, 3_000_000)
+        second = calculate_trade_zones(price, price_structure(changed_daily), changed_daily, weekly)
+        self.assertEqual("weekly_daily_hybrid", first["zone_timeframe"])
+        self.assertIn("已完成周K定核心", first["zone_method"])
+        self.assertEqual(first["support_zone"], second["support_zone"])
+        self.assertEqual(first["pressure_zone"], second["pressure_zone"])
+
     def test_risk_output_is_advisory(self):
         bars = sample_bars(falling=True)
         ind = calculate(bars)

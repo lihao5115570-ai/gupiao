@@ -78,13 +78,18 @@ class MonitorEngine:
         quote = self.provider.quote(position.code)
         self.db.save_quote(quote)
         daily = self._bars(position.code, "daily", 1800)
+        try:
+            weekly = self._bars(position.code, "weekly", 21600)
+        except Exception as exc:
+            weekly = None
+            self.events.put(("status", f"{position.name}周K暂不可用，三区间临时按日线降级：{exc}"))
         bars_60 = self._bars(position.code, "60m", 600)
         bars_15 = self._bars(position.code, "15m", 180)
         daily_ind = calculate(daily)
         intraday = {"60m": calculate(bars_60), "15m": calculate(bars_15)}
         structure = price_structure(daily)
         old_risk = position.risk_level
-        analysis = evaluate(position, quote, daily, daily_ind, structure, settings, intraday)
+        analysis = evaluate(position, quote, daily, daily_ind, structure, settings, intraday, weekly)
         highest = float(analysis.indicators["highest_price"])
         self.db.update_position_state(int(position.id), analysis.price, highest, analysis.risk_level)
         self.db.save_analysis(position, analysis, old_risk)

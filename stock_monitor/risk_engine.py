@@ -29,6 +29,7 @@ def evaluate(
     structure: dict[str, float | None],
     settings: dict[str, str],
     intraday: dict[str, dict[str, object]] | None = None,
+    weekly: list[Bar] | None = None,
 ) -> Analysis:
     price = quote.price or daily[-1].close
     held_bars = [bar for bar in daily if bar.timestamp[:10] >= position.buy_date]
@@ -38,6 +39,7 @@ def evaluate(
     highest_profit_pct = (highest / position.buy_price - 1) * 100
     drawdown_pct = (highest - price) / highest * 100 if highest else 0
     trend, boll_state, macd_state, kdj_state, volume_state = _state_labels(daily_ind)
+    zones = calculate_trade_zones(price, structure, daily, weekly)
     score = 0
     reasons: list[str] = []
     events: list[str] = []
@@ -70,7 +72,7 @@ def evaluate(
         prior_price_high = max(b.high for b in prior_segment)
         if close > prior_price_high and hist < max(0.0, hist_prev):
             score += 2; reasons.append("价格创新高但动能未同步，存在顶背离迹象"); events.append("情况D：顶背离迹象")
-    major_support = float(structure["major_support"] or 0)
+    major_support = float(zones.get("support_zone_low") or structure["major_support"] or 0)
     if major_support and close < major_support and ratio >= 1.25:
         score += 4; reasons.append(f"重要支撑 {major_support:.2f} 失守，风险等级提高"); events.append("情况F：放量跌破重要支撑")
     if kdj_dead and j >= 70:
@@ -107,7 +109,6 @@ def evaluate(
         reasons.append("当前未触发明显的联合风险条件")
     support = structure.get("support")
     resistance = structure.get("resistance")
-    zones = calculate_trade_zones(price, structure, daily)
     advice_title, advice_text = position_advice(price, risk_level, zones, trend, macd_state, kdj_state)
     guard_start = float(settings.get("profit_guard_start", 5))
     profit_guard_active = highest_profit_pct >= guard_start
@@ -136,7 +137,7 @@ def evaluate(
         highest_profit_pct=highest_profit_pct, drawdown_pct=drawdown_pct,
         risk_level=risk_level, reasons=reasons, events=list(dict.fromkeys(events)),
         trend=trend, boll_state=boll_state, macd_state=macd_state, kdj_state=kdj_state,
-        volume_state=volume_state, support=support, major_support=structure.get("major_support"),
-        resistance=resistance, major_resistance=structure.get("major_resistance"),
+        volume_state=volume_state, support=support, major_support=zones.get("support_zone_low") or structure.get("major_support"),
+        resistance=resistance, major_resistance=zones.get("pressure_zone_high") or structure.get("major_resistance"),
         explanation=explanation, indicators=merged,
     )

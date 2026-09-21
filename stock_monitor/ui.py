@@ -623,7 +623,7 @@ class StockMonitorApp:
         left = tk.Frame(content, bg="#ffffff")
         left.pack(side="left", fill="y", padx=(0, 24))
         self.state_vars: dict[str, tk.StringVar] = {}
-        for label in ("趋势", "BOLL", "MACD", "KDJ", "成交量", "短线支撑", "重要支撑", "短线压力", "重要压力", "支撑区", "博弈区", "压力区", "强压力", "区间算法", "仓位建议"):
+        for label in ("趋势", "BOLL", "MACD", "KDJ", "成交量", "短线支撑", "周线支撑", "短线压力", "周线压力", "核心支撑区", "日线博弈区", "核心压力区", "强压力", "区间算法", "仓位建议"):
             row = tk.Frame(left, bg="#ffffff")
             row.pack(fill="x", pady=5)
             tk.Label(row, text=label, width=10, anchor="w", bg="#ffffff", fg="#69747e").pack(side="left")
@@ -903,7 +903,7 @@ class StockMonitorApp:
             if snapshot:
                 values = {"当前价": f"{float(snapshot.get('price') or 0):.2f}", "成本价": f"{position.buy_price:.2f}", "收益率": f"{float(snapshot.get('return_pct') or 0):+.2f}%", "最高浮盈": f"{float(snapshot.get('highest_profit_pct') or 0):+.2f}%", "高点回撤": f"{float(snapshot.get('drawdown_pct') or 0):.2f}%", "风险等级": f"{int(snapshot.get('risk_level') or position.risk_level)}/5"}
                 for label, value in values.items(): self.detail_metrics[label].set(value)
-                states = {"趋势": str(snapshot.get("trend") or "等待分析"), "BOLL": str(snapshot.get("boll_state") or "等待分析"), "MACD": str(snapshot.get("macd_state") or "等待分析"), "KDJ": str(snapshot.get("kdj_state") or "等待分析"), "成交量": str(snapshot.get("volume_state") or "等待分析"), "短线支撑": self._fmt_price(snapshot.get("support")), "重要支撑": self._fmt_price(snapshot.get("major_support")), "短线压力": self._fmt_price(snapshot.get("resistance")), "重要压力": self._fmt_price(snapshot.get("major_resistance")), "支撑区": str(snapshot.get("support_zone") or "--"), "博弈区": str(snapshot.get("play_zone") or "--"), "压力区": str(snapshot.get("pressure_zone") or "--"), "强压力": str(snapshot.get("strong_pressure_zone") or "--"), "区间算法": str(snapshot.get("zone_method") or "--"), "仓位建议": str(snapshot.get("position_advice") or "--")}
+                states = {"趋势": str(snapshot.get("trend") or "等待分析"), "BOLL": str(snapshot.get("boll_state") or "等待分析"), "MACD": str(snapshot.get("macd_state") or "等待分析"), "KDJ": str(snapshot.get("kdj_state") or "等待分析"), "成交量": str(snapshot.get("volume_state") or "等待分析"), "短线支撑": self._fmt_price(snapshot.get("support")), "周线支撑": self._fmt_price(snapshot.get("major_support")), "短线压力": self._fmt_price(snapshot.get("resistance")), "周线压力": self._fmt_price(snapshot.get("major_resistance")), "核心支撑区": str(snapshot.get("support_zone") or "--"), "日线博弈区": str(snapshot.get("play_zone") or "--"), "核心压力区": str(snapshot.get("pressure_zone") or "--"), "强压力": str(snapshot.get("strong_pressure_zone") or "--"), "区间算法": str(snapshot.get("zone_method") or "--"), "仓位建议": str(snapshot.get("position_advice") or "--")}
                 for label, value in states.items():
                     if label in self.state_vars: self.state_vars[label].set(value)
                 self.explanation.configure(state="normal"); self.explanation.delete("1.0", "end"); self.explanation.insert("1.0", str(snapshot.get("explanation") or "已读取最近一次分析快照，请点击刷新行情获取最新结果。")); self.explanation.configure(state="disabled")
@@ -912,7 +912,7 @@ class StockMonitorApp:
             return
         values = {"当前价": f"{analysis.price:.2f}", "成本价": f"{position.buy_price:.2f}", "收益率": f"{analysis.return_pct:+.2f}%", "最高浮盈": f"{analysis.highest_profit_pct:+.2f}%", "高点回撤": f"{analysis.drawdown_pct:.2f}%", "风险等级": f"{analysis.risk_level}/5"}
         for label, value in values.items(): self.detail_metrics[label].set(value)
-        states = {"趋势": analysis.trend, "BOLL": analysis.boll_state, "MACD": analysis.macd_state, "KDJ": analysis.kdj_state, "成交量": analysis.volume_state, "短线支撑": self._fmt_price(analysis.support), "重要支撑": self._fmt_price(analysis.major_support), "短线压力": self._fmt_price(analysis.resistance), "重要压力": self._fmt_price(analysis.major_resistance), "支撑区": str(analysis.indicators.get("support_zone", "--")), "博弈区": str(analysis.indicators.get("play_zone", "--")), "压力区": str(analysis.indicators.get("pressure_zone", "--")), "强压力": str(analysis.indicators.get("strong_pressure_zone", "--")), "区间算法": str(analysis.indicators.get("zone_method", "--")), "仓位建议": str(analysis.indicators.get("position_advice", "--"))}
+        states = {"趋势": analysis.trend, "BOLL": analysis.boll_state, "MACD": analysis.macd_state, "KDJ": analysis.kdj_state, "成交量": analysis.volume_state, "短线支撑": self._fmt_price(analysis.support), "周线支撑": self._fmt_price(analysis.major_support), "短线压力": self._fmt_price(analysis.resistance), "周线压力": self._fmt_price(analysis.major_resistance), "核心支撑区": str(analysis.indicators.get("support_zone", "--")), "日线博弈区": str(analysis.indicators.get("play_zone", "--")), "核心压力区": str(analysis.indicators.get("pressure_zone", "--")), "强压力": str(analysis.indicators.get("strong_pressure_zone", "--")), "区间算法": str(analysis.indicators.get("zone_method", "--")), "仓位建议": str(analysis.indicators.get("position_advice", "--"))}
         for label, value in states.items(): self.state_vars[label].set(value)
         self.explanation.configure(state="normal"); self.explanation.delete("1.0", "end"); self.explanation.insert("1.0", analysis.explanation); self.explanation.configure(state="disabled")
 

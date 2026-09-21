@@ -32,7 +32,11 @@ def calculate_candidate_zone(row: dict[str, Any], provider: Any) -> dict[str, An
     if len(bars) < 30:
         raise ValueError(f"{code}日K数据不足")
     reference_price = float(row.get("lock_price") or row.get("auction_price") or bars[-1].close)
-    zones = calculate_trade_zones(reference_price, price_structure(bars), bars)
+    try:
+        weekly_bars = provider.klines(code, "weekly", 120)
+    except Exception:
+        weekly_bars = None
+    zones = calculate_trade_zones(reference_price, price_structure(bars), bars, weekly_bars)
     if any(zones.get(key) is None for key in ZONE_KEYS):
         raise ValueError(f"{code}无法形成完整的三区间")
     result = dict(row)
