@@ -4,9 +4,9 @@ import unittest
 import tempfile
 import queue
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
-from stock_monitor.auction import AuctionEngine, REQUIRED_PATH, apply_crosscheck, apply_data_quality_gate, build_candidate_pool, manual_auction_codes, score_auction_paths
+from stock_monitor.auction import AuctionDataError, AuctionEngine, InfowayAuctionProvider, REQUIRED_PATH, apply_crosscheck, apply_data_quality_gate, build_candidate_pool, manual_auction_codes, score_auction_paths
 from stock_monitor.database import Database
 
 
@@ -73,6 +73,27 @@ class AuctionDecisionTests(unittest.TestCase):
             "auction_pool_max_size": "500",
         })
         self.assertEqual(["600001", "600002"], [row["code"] for row in pool])
+
+    def test_pool_defers_amount_when_preopen_feed_reports_zero(self):
+        rows = [
+            {"code": f"60000{i}", "name": f"样本{i}", "industry": "板块A",
+             "auction_price": 12, "auction_pct": 1 + i * .1, "auction_amount": 0,
+             "float_market_value": 3_000_000_000}
+            for i in range(1, 5)
+        ]
+        pool = build_candidate_pool(rows, {
+            "auction_pool_min_amount": "5000000", "auction_pool_min_sector_positive": "3",
+        })
+        self.assertEqual(4, len(pool))
+        self.assertTrue(all(row["pool_amount_deferred"] for row in pool))
+
+    def test_infoway_stale_kline_cannot_be_used_for_auction(self):
+        now = datetime(2026, 9, 22, 9, 24, 30, tzinfo=timezone(timedelta(hours=8)))
+        stale = [{"source_time": "2026-09-21T15:00:00+08:00"}]
+        with self.assertRaisesRegex(AuctionDataError, "不是实时竞价数据"):
+            InfowayAuctionProvider.require_fresh_auction_data(stale, now)
+        fresh = [{"source_time": "2026-09-22T09:24:25+08:00"}]
+        InfowayAuctionProvider.require_fresh_auction_data(fresh, now)
 
     def test_manual_codes_are_normalized_and_negative_stock_remains_visible(self):
         settings = dict(self.settings, auction_manual_codes="600001， 000002;bad")

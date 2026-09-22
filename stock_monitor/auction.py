@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime, time as clock_time, timedelta
+from datetime import date, datetime, time as clock_time, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
@@ -278,6 +278,7 @@ class InfowayAuctionProvider:
     """Infoway HTTP adapter for validating 9:20-9:25 auction collection."""
 
     BASE = "https://data.infoway.io"
+    CHINA_TZ = timezone(timedelta(hours=8))
 
     def __init__(
         self,
@@ -362,6 +363,10 @@ class InfowayAuctionProvider:
             if not code or not points:
                 continue
             point = points[0]
+            try:
+                source_time = datetime.fromtimestamp(int(point["t"]), self.CHINA_TZ)
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
             price = _number(point.get("c"))
             pct = self._pct(point.get("pc"))
             amount = _number(point.get("vw")) or 0.0
@@ -374,6 +379,7 @@ class InfowayAuctionProvider:
                 "name": code,
                 "industry": "未分类",
                 "auction_price": price,
+                "source_time": source_time.isoformat(),
                 "auction_pct": pct,
                 "auction_amount": amount,
                 "auction_volume": _number(point.get("v")) or 0.0,
@@ -420,6 +426,7 @@ class InfowayAuctionProvider:
                 row["float_market_value"] = float(extra.get("float_market_value") or 0)
             result.extend(rows)
         finished_at = datetime.now()
+        self.require_fresh_auction_data(result, datetime.now(self.CHINA_TZ))
         unique_codes = {row["code"] for row in result}
         self.last_quality = {
             "started_at": started_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
@@ -437,6 +444,27 @@ class InfowayAuctionProvider:
         }
         return result
 
+    @classmethod
+    def require_fresh_auction_data(cls, rows: list[dict], now: datetime) -> None:
+        if not rows:
+            raise AuctionDataError("Infoway没有返回竞价行情")
+        fresh = 0
+        latest: datetime | None = None
+        for row in rows:
+            try:
+                stamp = datetime.fromisoformat(str(row["source_time"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            latest = max(latest, stamp) if latest else stamp
+            age = (now - stamp).total_seconds()
+            if stamp.date() == now.date() and -5 <= age <= 30:
+                fresh += 1
+        if fresh < len(rows) * 0.98:
+            shown = latest.strftime("%Y-%m-%d %H:%M:%S") if latest else "无时间戳"
+            raise AuctionDataError(
+                f"Infoway分钟K不是实时竞价数据：{fresh}/{len(rows)}只时间有效，最新时间{shown}；本次采样作废"
+            )
+
     def fetch_sample(self, limit: int = 100) -> list[dict]:
         all_symbols = self.symbols()
         symbols = all_symbols[:max(1, min(100, limit))]
@@ -451,6 +479,7 @@ class InfowayAuctionProvider:
             "finished_at": finished_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
             "expected_total": len(all_symbols),
             "sample_total": len(symbols),
+            "latest_source_time": max((str(row.get("source_time") or "") for row in rows), default=""),
             "raw_count": len(rows),
             "raw_unique_count": len({row["code"] for row in rows}),
             "normalized_count": len({row["code"] for row in rows}),
@@ -482,6 +511,10 @@ def build_candidate_pool(rows: list[dict], settings: dict[str, str]) -> list[dic
     min_pct = _setting_float(settings, "auction_pool_min_pct", 0.30)
     max_pct = _setting_float(settings, "auction_pool_max_pct", 6.50)
     min_amount = _setting_float(settings, "auction_pool_min_amount", 5_000_000)
+    # Before the opening match, quote feeds report zero traded amount.
+    # Defer this pool-only filter when unavailable; the 9:25 decision still checks amount.
+    amount_coverage = sum(float(row.get("auction_amount") or 0) > 0 for row in rows) / len(rows) if rows else 0
+    amount_available = amount_coverage >= 0.8
     max_size = max(50, int(_setting_float(settings, "auction_pool_max_size", 500)))
     per_sector = max(1, int(_setting_float(settings, "auction_pool_max_per_sector", 5)))
     min_sector_positive = max(1, int(_setting_float(settings, "auction_pool_min_sector_positive", 3)))
@@ -504,7 +537,7 @@ def build_candidate_pool(rows: list[dict], settings: dict[str, str]) -> list[dic
             continue
         if not min_pct <= pct <= max_pct:
             continue
-        if amount < min_amount or industry == "未分类":
+        if (amount_available and amount < min_amount) or industry == "未分类":
             continue
         eligible.append(row)
 
@@ -530,6 +563,7 @@ def build_candidate_pool(rows: list[dict], settings: dict[str, str]) -> list[dic
             item = dict(row)
             item["pool_sector_positive"] = positive_count
             item["pool_sector_pct"] = round(avg_pct, 2)
+            item["pool_amount_deferred"] = not amount_available
             pool.append(item)
 
     preferred_min = _setting_float(settings, "auction_preferred_min_price", 8.0)
@@ -960,9 +994,11 @@ class AuctionEngine:
             valid = [row for row in rows if row.get("auction_price") and row.get("auction_pct") is not None]
             if not valid:
                 raise AuctionDataError("Infoway样本没有返回有效价格/涨幅")
+            latest = str(quality.get("latest_source_time") or "")
             self.events.put((
                 "auction_status",
-                f"Infoway连通成功：样本{len(valid)}/100；全市场列表约{quality.get('expected_total', 0)}只。明天9:20-9:25可做真实采样验证。",
+                f"Infoway接口连通：样本{len(valid)}/100；最新K线时间{latest or '未知'}。"
+                "连通不代表支持竞价，采样时会严格检查时间戳。",
             ))
         except Exception as exc:
             self.events.put(("auction_error", f"Infoway测试失败：{exc}"))
@@ -1011,7 +1047,9 @@ class AuctionEngine:
             sectors = len({str(row.get("industry") or "") for row in pool})
             self.events.put((
                 "auction_status",
-                f"盘前核心池已就绪：{len(pool)}只/{sectors}个板块｜指定{len(specified_codes)}只｜用时{time.monotonic() - started:.1f}秒",
+                f"盘前核心池已就绪：{len(pool)}只/{sectors}个板块｜指定{len(specified_codes)}只｜"
+                f"{'成交额待9:25核验' if pool[0].get('pool_amount_deferred') else '盘前成交额已核验'}｜"
+                f"用时{time.monotonic() - started:.1f}秒",
             ))
         except Exception as exc:
             self._pool_failures[day] += 1
@@ -1044,11 +1082,15 @@ class AuctionEngine:
             if isinstance(self.provider, InfowayAuctionProvider) and settings.get("auction_pool_enabled", "1") == "1":
                 pool_codes = self._pool_codes.get(day)
                 if not pool_codes:
-                    raise AuctionDataError("盘前核心池未生成；请在9:18前启动软件")
+                    raise AuctionDataError("盘前核心池未生成；请查看9:18建池错误，今日不能补造竞价路径")
                 tracked_codes = set(pool_codes) | manual_auction_codes(settings)
                 rows = self.provider.fetch_all(tracked_codes, self._pool_metadata.get(day))
             else:
                 rows = self.provider.fetch_all()
+            if isinstance(self.provider, InfowayAuctionProvider) and label == "09:25":
+                lock_at = target_at.replace(tzinfo=InfowayAuctionProvider.CHINA_TZ)
+                if any(datetime.fromisoformat(str(row.get("source_time") or "")) < lock_at for row in rows):
+                    raise AuctionDataError("Infoway尚未提供9:25锁单时间戳；不能用9:24或更早的K线代替锁单价")
             finished_wall = self._now()
             sampled_at = finished_wall.strftime("%Y-%m-%d %H:%M:%S")
             quality = dict(self.provider.last_quality)
