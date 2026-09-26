@@ -24,7 +24,7 @@ function positionTemplate(stock, index) {
       <div class="states"><h3>技术指标状态</h3>
         ${[["BOLL",stock.boll_state],["MACD",stock.macd_state],["KDJ",stock.kdj_state],["VOL",stock.volume_state]].map(([label,value]) => `<div class="state-row"><strong>${label}</strong><span>${safe(value || "等待分析")}</span><em>${safe(value || "--")}</em></div>`).join("")}
       </div>
-      <div class="levels"><h3>关键位置</h3><div class="level-grid"><span>支撑位 <strong>${fmt(stock.support)}</strong></span><span>压力位 <strong>${fmt(stock.resistance)}</strong></span><span>重要支撑 <strong>${fmt(stock.major_support)}</strong></span><span>重要压力 <strong>${fmt(stock.major_resistance)}</strong></span><span>支撑区 <strong>${safe(stock.support_zone || "--")}</strong></span><span>博弈区 <strong>${safe(stock.play_zone || "--")}</strong></span><span>压力区 <strong>${safe(stock.pressure_zone || "--")}</strong></span><span>强压力 <strong>${safe(stock.strong_pressure_zone || "--")}</strong></span></div><p class="zone-method">${safe(stock.zone_method || "")}</p></div>
+      <div class="levels"><h3>关键位置</h3><div class="level-grid"><span>短线支撑 <strong>${fmt(stock.support)}</strong></span><span>周线支撑 <strong>${fmt(stock.major_support)}</strong></span><span>核心支撑区 <strong>${safe(stock.support_zone || "--")}</strong></span><span>日线博弈区 <strong>${safe(stock.play_zone || "--")}</strong></span><span>第一压力区 <strong>${safe(stock.pressure_zone || "--")}</strong></span><span>第二压力区 <strong>${safe(stock.second_pressure_zone || "--")}</strong></span><span>强压力区 <strong>${safe(stock.strong_pressure_zone || "--")}</strong></span></div><p class="zone-method">${safe(stock.zone_method || "")}</p></div>
     </div>
   </article>`;
 }
@@ -52,3 +52,4 @@ async function loadData() {
 document.querySelector("#refresh").addEventListener("click", loadData);
 loadData();
 setInterval(loadData, 60000);
+

@@ -113,18 +113,15 @@ def evaluate(
     guard_start = float(settings.get("profit_guard_start", 5))
     profit_guard_active = highest_profit_pct >= guard_start
     guard_text = "已进入利润保护观察状态。" if profit_guard_active else "尚未进入利润保护观察状态。"
-    strong_pressure_text = (
-        f"；强压力 {zones['strong_pressure_zone']}"
-        if zones.get("strong_pressure_zone") != "--" else ""
-    )
     explanation = (
         f"当前趋势为{trend}，股价{'位于' if close >= mid else '跌至'}BOLL中轨{'上方' if close >= mid else '下方'}。"
         f"MACD状态{macd_state}，KDJ处于{kdj_state}，成交量{volume_state}。{guard_text}\n\n"
         f"当前风险等级：{risk_level}/5。主要依据：{'；'.join(reasons[:4])}。\n\n"
         f"重点观察：{f'{resistance:.2f} 压力' if resistance else '上方压力'}；"
         f"{f'{support:.2f} 支撑' if support else '下方支撑'}。本提示仅用于持仓风险观察，不构成买卖建议。"
-        f"\n\n自动区间：支撑区 {zones['support_zone']}；博弈区 {zones['play_zone']}；压力区 {zones['pressure_zone']}"
-        f"{strong_pressure_text}。"
+        f"\n\n自动区间：支撑区 {zones['support_zone']}；博弈区 {zones['play_zone']}；"
+        f"第一压力区 {zones['pressure_zone']}；第二压力区 {zones['second_pressure_zone']}；"
+        f"强压力区 {zones['strong_pressure_zone']}。"
         f"\n计算方法：{zones['zone_method']}。{zones['zone_basis']}"
         f"\n\n仓位观察建议：{advice_title}。{advice_text}"
     )
@@ -138,6 +135,7 @@ def evaluate(
         risk_level=risk_level, reasons=reasons, events=list(dict.fromkeys(events)),
         trend=trend, boll_state=boll_state, macd_state=macd_state, kdj_state=kdj_state,
         volume_state=volume_state, support=support, major_support=zones.get("support_zone_low") or structure.get("major_support"),
-        resistance=resistance, major_resistance=zones.get("pressure_zone_high") or structure.get("major_resistance"),
+        resistance=resistance, major_resistance=zones.get("strong_pressure_high") or structure.get("major_resistance"),
         explanation=explanation, indicators=merged,
     )
+

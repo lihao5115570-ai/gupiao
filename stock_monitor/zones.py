@@ -51,6 +51,118 @@ def _moving_averages(bars: list[Bar]) -> dict[int, float]:
     return {period: fmean(closes[-period:]) for period in (5, 10, 20, 30, 60) if len(closes) >= period}
 
 
+def _average_true_range(bars: list[Bar], period: int = 14) -> float:
+    """Size pressure bands from completed daily candles only."""
+    completed = bars[:-1] if len(bars) > 1 else bars
+    sample = completed[-(period + 1):]
+    if len(sample) < 2:
+        return 0.0
+    ranges = []
+    for previous, current in zip(sample, sample[1:]):
+        ranges.append(max(
+            current.high - current.low,
+            abs(current.high - previous.close),
+            abs(current.low - previous.close),
+        ))
+    return fmean(ranges)
+
+
+def _clustered_pivot_highs(bars: list[Bar], tolerance: float) -> list[float]:
+    """Return volume-weighted clusters of confirmed local highs."""
+    completed = bars[:-1] if len(bars) > 1 else bars
+    window = completed[-60:]
+    if len(window) < 5:
+        return []
+    average_volume = fmean(max(bar.volume, 0.0) for bar in window) or 1.0
+    pivots: list[tuple[float, float]] = []
+    for index in range(2, len(window) - 2):
+        bar = window[index]
+        neighbours = window[index - 2:index] + window[index + 1:index + 3]
+        if bar.high >= max(item.high for item in neighbours):
+            volume_weight = min(max(bar.volume / average_volume, 0.5), 3.0)
+            recency_weight = 0.75 + 0.5 * index / max(len(window) - 1, 1)
+            pivots.append((bar.high, volume_weight * recency_weight))
+    clusters: list[list[tuple[float, float]]] = []
+    for level, weight in sorted(pivots):
+        if clusters:
+            total_weight = sum(item[1] for item in clusters[-1])
+            center = sum(item[0] * item[1] for item in clusters[-1]) / total_weight
+            if abs(level - center) <= tolerance:
+                clusters[-1].append((level, weight))
+                continue
+        clusters.append([(level, weight)])
+    return [
+        sum(level * weight for level, weight in cluster) / sum(weight for _, weight in cluster)
+        for cluster in clusters
+    ]
+
+
+def _pressure_band(center: float, atr: float, multiplier: float = 1.0) -> tuple[float, float]:
+    half_width = max(center * 0.0035, min(atr * 0.12, center * 0.008)) * multiplier
+    return round(center - half_width, 2), round(center + half_width, 2)
+
+
+def _three_pressure_bands(
+    price: float,
+    structure: dict[str, float | None],
+    bars: list[Bar] | None,
+    impulse: tuple[float, float] | None = None,
+    extra_levels: list[float] | None = None,
+) -> dict[str, float | str]:
+    """Build three distinct resistance bands instead of overlapping lines and a broad zone."""
+    atr = _average_true_range(bars) if bars else price * 0.025
+    atr = atr or price * 0.025
+    resistance = float(structure.get("resistance") or 0)
+    major_resistance = float(structure.get("major_resistance") or 0)
+    first_center = resistance if resistance > price * 0.995 else price + atr * 0.75
+    minimum_gap = max(price * 0.012, atr * 0.35)
+
+    pivot_levels = _clustered_pivot_highs(bars, max(price * 0.006, atr * 0.25)) if bars else []
+    upper_levels = [major_resistance, *(extra_levels or []), *pivot_levels]
+    if impulse:
+        impulse_low, impulse_high = impulse
+        upper_levels.extend((impulse_low + (impulse_high - impulse_low) * 0.86, impulse_high))
+    upper_levels = sorted({float(level) for level in upper_levels if level and float(level) >= first_center + minimum_gap})
+
+    if len(upper_levels) >= 2:
+        second_center, strong_center = upper_levels[0], upper_levels[1]
+    elif len(upper_levels) == 1:
+        strong_center = upper_levels[0]
+        if strong_center < first_center + minimum_gap * 2:
+            strong_center = first_center + minimum_gap * 2
+        second_center = (first_center + strong_center) / 2
+    else:
+        second_center = first_center + minimum_gap
+        strong_center = first_center + minimum_gap * 2
+
+    if impulse:
+        target = impulse[0] + (impulse[1] - impulse[0]) * 0.86
+        second_center = min(max(target, first_center + minimum_gap), impulse[1] - minimum_gap)
+        strong_center = max(impulse[1], second_center + minimum_gap)
+
+    first_low, first_high = _pressure_band(first_center, atr)
+    second_low, second_high = _pressure_band(second_center, atr)
+    strong_low, strong_high = _pressure_band(strong_center, atr, 1.35)
+    if first_high >= second_low:
+        boundary = round((first_center + second_center) / 2, 2)
+        first_high, second_low = boundary, boundary
+    if second_high >= strong_low:
+        boundary = round((second_center + strong_center) / 2, 2)
+        second_high, strong_low = boundary, boundary
+    return {
+        "pressure_zone_low": first_low,
+        "pressure_zone_high": first_high,
+        "pressure_zone": format_zone(first_low, first_high),
+        "second_pressure_low": second_low,
+        "second_pressure_high": second_high,
+        "second_pressure_zone": format_zone(second_low, second_high),
+        "strong_pressure_low": strong_low,
+        "strong_pressure_high": strong_high,
+        "strong_pressure_zone": format_zone(strong_low, strong_high),
+        "pressure_atr": atr,
+    }
+
+
 def _completed_weekly_bars(bars: list[Bar]) -> list[Bar]:
     """Exclude a still-forming weekly candle so core zones do not drift each day."""
     if not bars:
@@ -104,39 +216,37 @@ def _hybrid_trade_zones(
         weekly_structure.get("previous_high"), weekly_averages.get(10), weekly_averages.get(20),
     ]
     support_band = _nearest_band([float(value) for value in support_values if value], price, below=True)
-    pressure_band = _nearest_band([float(value) for value in pressure_values if value], price, below=False)
-    if not support_band or not pressure_band:
+    if not support_band:
         return None
 
     step = _zone_step(price)
     support_low = _round_level(support_band[0], step)
     support_high = _round_level(min(support_band[1], price), step, upper=True)
-    pressure_low = _round_level(max(pressure_band[0], price), step)
-    pressure_high = _round_level(pressure_band[1], step, upper=True)
+    pressure = _three_pressure_bands(
+        price,
+        daily_structure,
+        daily_bars,
+        extra_levels=[float(value) for value in pressure_values if value and float(value) > price],
+    )
     daily_support = float(daily_structure.get("support") or support_high)
+    pressure_low = float(pressure["pressure_zone_low"])
     daily_resistance = float(daily_structure.get("resistance") or pressure_low)
     play_low = _round_level(max(support_high, min(price, daily_support)), step)
     play_high = _round_level(min(pressure_low, max(price, daily_resistance)), step, upper=True)
     if play_low >= play_high:
         play_low, play_high = support_high, pressure_low
 
-    higher_weekly = sorted({float(value) for value in pressure_values if value and float(value) > pressure_high})
-    strong_low = _round_level(higher_weekly[0], step) if higher_weekly else None
-    strong_high = _round_level(higher_weekly[1], step, upper=True) if len(higher_weekly) > 1 else strong_low
     weekly_date = completed[-1].timestamp[:10]
     daily_date = daily_bars[-1].timestamp[:10] if daily_bars else "--"
     ma_text = " / ".join(f"MA{period}周 {value:.2f}" for period, value in weekly_averages.items() if period in (10, 20, 30))
     return {
         "support_zone_low": support_low, "support_zone_high": support_high,
         "play_zone_low": play_low, "play_zone_high": play_high,
-        "pressure_zone_low": pressure_low, "pressure_zone_high": pressure_high,
-        "strong_pressure_low": strong_low, "strong_pressure_high": strong_high,
         "support_zone": format_zone(support_low, support_high),
         "play_zone": format_zone(play_low, play_high),
-        "pressure_zone": format_zone(pressure_low, pressure_high),
-        "strong_pressure_zone": format_zone(strong_low, strong_high),
-        "zone_method": "多周期：已完成周K定核心，日K定博弈",
-        "zone_basis": f"周线基准截至 {weekly_date}（{ma_text or '周线结构高低点'}）；日线执行参考截至 {daily_date}。本周未收盘周K不改变核心区。",
+        **pressure,
+        "zone_method": "三档压力：日K局部高点聚类 + 周K结构 + 成交量权重 + ATR宽度",
+        "zone_basis": f"周线基准截至 {weekly_date}（{ma_text or '周线结构高低点'}）；日线执行参考截至 {daily_date}。第一压力取最近确认高点，第二和强压力结合周线结构；本周未收盘周K不参与计算。",
         "zone_weekly_date": weekly_date,
         "zone_daily_date": daily_date,
         "zone_timeframe": "weekly_daily_hybrid",
@@ -162,7 +272,11 @@ def _strong_impulse(bars: list[Bar], price: float) -> tuple[float, float] | None
     return best_low, best_high
 
 
-def _impulse_trade_zones(price: float, bars: list[Bar]) -> dict[str, float | str | None] | None:
+def _impulse_trade_zones(
+    price: float,
+    structure: dict[str, float | None],
+    bars: list[Bar],
+) -> dict[str, float | str | None] | None:
     impulse = _strong_impulse(bars, price)
     if not impulse:
         return None
@@ -176,31 +290,23 @@ def _impulse_trade_zones(price: float, bars: list[Bar]) -> dict[str, float | str
     support_high = _round_level(impulse_low + span * 0.35, step, upper=True)
     play_low = _round_level(impulse_low + span * 0.37, step)
     play_high = _round_level(impulse_low + span * 0.60, step, upper=True)
-    pressure_low = _round_level(impulse_low + span * 0.69, step)
-    pressure_high = _round_level(impulse_low + span * 0.86, step, upper=True)
-    strong_low = _round_level(impulse_low + span * 0.97, step)
-    strong_high = _round_level(impulse_high, step)
+    pressure = _three_pressure_bands(price, structure, bars, impulse=impulse)
 
     averages = _moving_averages(bars)
     ma_text = " / ".join(f"MA{period} {value:.2f}" for period, value in averages.items())
     basis = (
         f"急拉波段低点 {impulse_low:.2f}，高点 {impulse_high:.2f}；"
-        f"{ma_text}。区间由均线骨架、启动平台和拉升成交密集带综合估算。"
+        f"{ma_text}。三档压力由确认的局部高点、成交量权重和ATR波动宽度综合计算。"
     )
     return {
         "support_zone_low": support_low,
         "support_zone_high": support_high,
         "play_zone_low": play_low,
         "play_zone_high": play_high,
-        "pressure_zone_low": pressure_low,
-        "pressure_zone_high": pressure_high,
-        "strong_pressure_low": strong_low,
-        "strong_pressure_high": strong_high,
         "support_zone": format_zone(support_low, support_high),
         "play_zone": format_zone(play_low, play_high),
-        "pressure_zone": format_zone(pressure_low, pressure_high),
-        "strong_pressure_zone": format_zone(strong_low, strong_high),
-        "zone_method": "急拉结构：均线 + 启动平台 + 成交密集区",
+        **pressure,
+        "zone_method": "三档压力：局部高点聚类 + 成交量权重 + ATR宽度",
         "zone_basis": basis,
         "zone_timeframe": "daily_fallback",
         "impulse_low": impulse_low,
@@ -219,7 +325,7 @@ def calculate_trade_zones(
         if hybrid:
             return hybrid
     if bars:
-        impulse_zones = _impulse_trade_zones(price, bars)
+        impulse_zones = _impulse_trade_zones(price, structure, bars)
         if impulse_zones:
             return impulse_zones
 
@@ -229,10 +335,10 @@ def calculate_trade_zones(
     major_resistance = structure.get("major_resistance")
 
     support_low, support_high = _pad_if_flat(*_ordered_pair(major_support, support))
-    pressure_low, pressure_high = _pad_if_flat(*_ordered_pair(resistance, major_resistance))
+    pressure = _three_pressure_bands(price, structure, bars)
 
     play_low = support_high if support_high is not None else price * 0.985
-    play_high = pressure_low if pressure_low is not None else price * 1.015
+    play_high = float(pressure["pressure_zone_low"])
     if play_low > play_high:
         play_low, play_high = _ordered_pair(support, resistance)
     play_low, play_high = _pad_if_flat(play_low, play_high, 0.01)
@@ -242,16 +348,11 @@ def calculate_trade_zones(
         "support_zone_high": support_high,
         "play_zone_low": play_low,
         "play_zone_high": play_high,
-        "pressure_zone_low": pressure_low,
-        "pressure_zone_high": pressure_high,
-        "strong_pressure_low": None,
-        "strong_pressure_high": None,
         "support_zone": format_zone(support_low, support_high),
         "play_zone": format_zone(play_low, play_high),
-        "pressure_zone": format_zone(pressure_low, pressure_high),
-        "strong_pressure_zone": "--",
-        "zone_method": "日线降级：近期支撑压力",
-        "zone_basis": "周K数据不足或暂时不可用，当前按日线近期高低点估算；不应视为稳定周线核心区。",
+        **pressure,
+        "zone_method": "日线三档压力：局部高点聚类 + 成交量权重 + ATR宽度",
+        "zone_basis": "周K数据不足或暂时不可用；三档压力按已完成日K的局部高点、成交量权重和ATR波动宽度估算。",
         "zone_timeframe": "daily_fallback",
     }
 
@@ -264,6 +365,8 @@ def position_advice(price: float, risk_level: int, zones: dict[str, float | str 
     weak = any(word in f"{trend}{macd_state}{kdj_state}" for word in ("下跌", "走弱", "死叉", "偏弱"))
     if risk_level >= 4:
         return "减仓观察", "风险等级较高，优先控制仓位；反弹不能收回关键位时，适合减仓或停止加仓观察。"
+    if pressure_high and price > float(pressure_high):
+        return "突破后观察", "价格已站到第一压力区上方，重点观察收盘能否守住区间上沿，并配合成交量确认；冲高回落时需要防假突破。"
     if pressure_low and price >= float(pressure_low):
         if risk_level >= 3 or weak:
             return "压力区减仓观察", "价格已接近或进入压力区，且动能不够强，适合逢高减仓观察，不适合追高加仓。"
@@ -274,6 +377,5 @@ def position_advice(price: float, risk_level: int, zones: dict[str, float | str 
         return "支撑区谨慎观察", "价格在支撑区附近但技术状态偏弱，先看能否止跌，不建议盲目加仓。"
     if risk_level <= 2 and not weak:
         return "持仓观察", "价格位于博弈区且风险较低，已有仓位可继续观察，等待向压力区或支撑区靠近。"
-    if pressure_high and price > float(pressure_high):
-        return "突破后观察", "价格强于主要压力区，重点观察突破是否有效；放量回落时需要防假突破。"
     return "暂不加仓", "价格处于博弈区但动能偏弱，先等待指标修复或重新站上关键位。"
+

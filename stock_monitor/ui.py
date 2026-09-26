@@ -623,7 +623,7 @@ class StockMonitorApp:
         left = tk.Frame(content, bg="#ffffff")
         left.pack(side="left", fill="y", padx=(0, 24))
         self.state_vars: dict[str, tk.StringVar] = {}
-        for label in ("趋势", "BOLL", "MACD", "KDJ", "成交量", "短线支撑", "周线支撑", "短线压力", "周线压力", "核心支撑区", "日线博弈区", "核心压力区", "强压力", "区间算法", "仓位建议"):
+        for label in ("趋势", "BOLL", "MACD", "KDJ", "成交量", "短线支撑", "周线支撑", "核心支撑区", "日线博弈区", "第一压力区", "第二压力区", "强压力区", "区间算法", "仓位建议"):
             row = tk.Frame(left, bg="#ffffff")
             row.pack(fill="x", pady=5)
             tk.Label(row, text=label, width=10, anchor="w", bg="#ffffff", fg="#69747e").pack(side="left")
@@ -903,7 +903,7 @@ class StockMonitorApp:
             if snapshot:
                 values = {"当前价": f"{float(snapshot.get('price') or 0):.2f}", "成本价": f"{position.buy_price:.2f}", "收益率": f"{float(snapshot.get('return_pct') or 0):+.2f}%", "最高浮盈": f"{float(snapshot.get('highest_profit_pct') or 0):+.2f}%", "高点回撤": f"{float(snapshot.get('drawdown_pct') or 0):.2f}%", "风险等级": f"{int(snapshot.get('risk_level') or position.risk_level)}/5"}
                 for label, value in values.items(): self.detail_metrics[label].set(value)
-                states = {"趋势": str(snapshot.get("trend") or "等待分析"), "BOLL": str(snapshot.get("boll_state") or "等待分析"), "MACD": str(snapshot.get("macd_state") or "等待分析"), "KDJ": str(snapshot.get("kdj_state") or "等待分析"), "成交量": str(snapshot.get("volume_state") or "等待分析"), "短线支撑": self._fmt_price(snapshot.get("support")), "周线支撑": self._fmt_price(snapshot.get("major_support")), "短线压力": self._fmt_price(snapshot.get("resistance")), "周线压力": self._fmt_price(snapshot.get("major_resistance")), "核心支撑区": str(snapshot.get("support_zone") or "--"), "日线博弈区": str(snapshot.get("play_zone") or "--"), "核心压力区": str(snapshot.get("pressure_zone") or "--"), "强压力": str(snapshot.get("strong_pressure_zone") or "--"), "区间算法": str(snapshot.get("zone_method") or "--"), "仓位建议": str(snapshot.get("position_advice") or "--")}
+                states = {"趋势": str(snapshot.get("trend") or "等待分析"), "BOLL": str(snapshot.get("boll_state") or "等待分析"), "MACD": str(snapshot.get("macd_state") or "等待分析"), "KDJ": str(snapshot.get("kdj_state") or "等待分析"), "成交量": str(snapshot.get("volume_state") or "等待分析"), "短线支撑": self._fmt_price(snapshot.get("support")), "周线支撑": self._fmt_price(snapshot.get("major_support")), "核心支撑区": str(snapshot.get("support_zone") or "--"), "日线博弈区": str(snapshot.get("play_zone") or "--"), "第一压力区": str(snapshot.get("pressure_zone") or "--"), "第二压力区": str(snapshot.get("second_pressure_zone") or "--"), "强压力区": str(snapshot.get("strong_pressure_zone") or "--"), "区间算法": str(snapshot.get("zone_method") or "--"), "仓位建议": str(snapshot.get("position_advice") or "--")}
                 for label, value in states.items():
                     if label in self.state_vars: self.state_vars[label].set(value)
                 self.explanation.configure(state="normal"); self.explanation.delete("1.0", "end"); self.explanation.insert("1.0", str(snapshot.get("explanation") or "已读取最近一次分析快照，请点击刷新行情获取最新结果。")); self.explanation.configure(state="disabled")
@@ -912,7 +912,7 @@ class StockMonitorApp:
             return
         values = {"当前价": f"{analysis.price:.2f}", "成本价": f"{position.buy_price:.2f}", "收益率": f"{analysis.return_pct:+.2f}%", "最高浮盈": f"{analysis.highest_profit_pct:+.2f}%", "高点回撤": f"{analysis.drawdown_pct:.2f}%", "风险等级": f"{analysis.risk_level}/5"}
         for label, value in values.items(): self.detail_metrics[label].set(value)
-        states = {"趋势": analysis.trend, "BOLL": analysis.boll_state, "MACD": analysis.macd_state, "KDJ": analysis.kdj_state, "成交量": analysis.volume_state, "短线支撑": self._fmt_price(analysis.support), "周线支撑": self._fmt_price(analysis.major_support), "短线压力": self._fmt_price(analysis.resistance), "周线压力": self._fmt_price(analysis.major_resistance), "核心支撑区": str(analysis.indicators.get("support_zone", "--")), "日线博弈区": str(analysis.indicators.get("play_zone", "--")), "核心压力区": str(analysis.indicators.get("pressure_zone", "--")), "强压力": str(analysis.indicators.get("strong_pressure_zone", "--")), "区间算法": str(analysis.indicators.get("zone_method", "--")), "仓位建议": str(analysis.indicators.get("position_advice", "--"))}
+        states = {"趋势": analysis.trend, "BOLL": analysis.boll_state, "MACD": analysis.macd_state, "KDJ": analysis.kdj_state, "成交量": analysis.volume_state, "短线支撑": self._fmt_price(analysis.support), "周线支撑": self._fmt_price(analysis.major_support), "核心支撑区": str(analysis.indicators.get("support_zone", "--")), "日线博弈区": str(analysis.indicators.get("play_zone", "--")), "第一压力区": str(analysis.indicators.get("pressure_zone", "--")), "第二压力区": str(analysis.indicators.get("second_pressure_zone", "--")), "强压力区": str(analysis.indicators.get("strong_pressure_zone", "--")), "区间算法": str(analysis.indicators.get("zone_method", "--")), "仓位建议": str(analysis.indicators.get("position_advice", "--"))}
         for label, value in states.items(): self.state_vars[label].set(value)
         self.explanation.configure(state="normal"); self.explanation.delete("1.0", "end"); self.explanation.insert("1.0", analysis.explanation); self.explanation.configure(state="disabled")
 
@@ -932,7 +932,7 @@ class StockMonitorApp:
         except json.JSONDecodeError:
             return None
         snapshot = dict(state.get("_analysis") or {})
-        for key in ("support_zone", "play_zone", "pressure_zone", "strong_pressure_zone", "zone_method", "zone_basis", "position_advice", "position_advice_detail"):
+        for key in ("support_zone", "play_zone", "pressure_zone", "second_pressure_zone", "strong_pressure_zone", "zone_method", "zone_basis", "position_advice", "position_advice_detail"):
             if key in state and key not in snapshot:
                 snapshot[key] = state[key]
         for key in ("support", "major_support", "resistance", "major_resistance"):
@@ -1098,6 +1098,7 @@ class StockMonitorApp:
                     "support_zone": analysis.indicators.get("support_zone"),
                     "play_zone": analysis.indicators.get("play_zone"),
                     "pressure_zone": analysis.indicators.get("pressure_zone"),
+                    "second_pressure_zone": analysis.indicators.get("second_pressure_zone"),
                     "strong_pressure_zone": analysis.indicators.get("strong_pressure_zone"),
                     "zone_method": analysis.indicators.get("zone_method"),
                     "position_advice": analysis.indicators.get("position_advice"),
@@ -1121,7 +1122,8 @@ class StockMonitorApp:
                         "support": snapshot.get("support"), "major_support": snapshot.get("major_support"),
                         "resistance": snapshot.get("resistance"), "major_resistance": snapshot.get("major_resistance"),
                         "support_zone": snapshot.get("support_zone"), "play_zone": snapshot.get("play_zone"),
-                        "pressure_zone": snapshot.get("pressure_zone"), "strong_pressure_zone": snapshot.get("strong_pressure_zone"),
+                        "pressure_zone": snapshot.get("pressure_zone"), "second_pressure_zone": snapshot.get("second_pressure_zone"),
+                        "strong_pressure_zone": snapshot.get("strong_pressure_zone"),
                         "zone_method": snapshot.get("zone_method"), "position_advice": snapshot.get("position_advice"),
                         "position_advice_detail": snapshot.get("position_advice_detail"),
                     }
@@ -1135,7 +1137,7 @@ class StockMonitorApp:
                         "boll_state": "等待分析", "macd_state": "等待分析", "kdj_state": "等待分析",
                         "volume_state": "等待分析", "support": None, "major_support": None,
                         "resistance": None, "major_resistance": None,
-                        "support_zone": None, "play_zone": None, "pressure_zone": None,
+                        "support_zone": None, "play_zone": None, "pressure_zone": None, "second_pressure_zone": None,
                         "strong_pressure_zone": None, "zone_method": None,
                         "position_advice": None, "position_advice_detail": None,
                     }
@@ -1254,3 +1256,4 @@ def run_app(base_dir: Path, background: bool = False) -> None:
         root.mainloop()
     finally:
         app.movement.stop(); app.web.stop(); app.auction.stop(); app.monitor.stop(); app.tray.stop()
+

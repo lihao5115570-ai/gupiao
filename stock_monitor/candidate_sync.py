@@ -17,6 +17,8 @@ ZONE_KEYS = (
     "support_zone_low", "support_zone_high",
     "play_zone_low", "play_zone_high",
     "pressure_zone_low", "pressure_zone_high",
+    "second_pressure_low", "second_pressure_high",
+    "strong_pressure_low", "strong_pressure_high",
 )
 
 
@@ -68,7 +70,9 @@ def zone_summary(row: dict[str, Any]) -> str:
     return (
         f"支撑区 {zones.get('support_zone', '--')}  |  "
         f"博弈区 {zones.get('play_zone', '--')}  |  "
-        f"压力区 {zones.get('pressure_zone', '--')}"
+        f"第一压力区 {zones.get('pressure_zone', '--')}  |  "
+        f"第二压力区 {zones.get('second_pressure_zone', '--')}  |  "
+        f"强压力区 {zones.get('strong_pressure_zone', '--')}"
     )
 
 
@@ -128,3 +132,4 @@ class ThsWatchlistController:
                 self.pause(0.45)
                 completed.append(code)
             return completed
+

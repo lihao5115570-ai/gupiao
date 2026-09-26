@@ -50,6 +50,8 @@ class CandidateZoneTests(unittest.TestCase):
         self.assertLessEqual(zones["support_zone_low"], zones["support_zone_high"])
         self.assertLessEqual(zones["play_zone_low"], zones["play_zone_high"])
         self.assertLessEqual(zones["pressure_zone_low"], zones["pressure_zone_high"])
+        self.assertLess(zones["pressure_zone_high"], zones["second_pressure_low"])
+        self.assertLess(zones["second_pressure_high"], zones["strong_pressure_low"])
         self.assertIn("支撑区", zone_summary(result))
 
     def test_batch_reports_invalid_code_without_losing_valid_result(self):
@@ -88,3 +90,4 @@ class CandidateZoneTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

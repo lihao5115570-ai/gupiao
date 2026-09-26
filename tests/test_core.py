@@ -55,8 +55,12 @@ class CoreTests(unittest.TestCase):
         }
         zones = calculate_trade_zones(36.0, structure)
         self.assertEqual("34.80 - 35.40", zones["support_zone"])
-        self.assertEqual("35.40 - 37.20", zones["play_zone"])
-        self.assertEqual("37.20 - 38.10", zones["pressure_zone"])
+        self.assertEqual("35.40 - 37.07", zones["play_zone"])
+        self.assertEqual("37.07 - 37.33", zones["pressure_zone"])
+        self.assertEqual("37.52 - 37.78", zones["second_pressure_zone"])
+        self.assertEqual("37.92 - 38.28", zones["strong_pressure_zone"])
+        self.assertLess(zones["pressure_zone_high"], zones["second_pressure_low"])
+        self.assertLess(zones["second_pressure_high"], zones["strong_pressure_low"])
 
     def test_rapid_rally_uses_launch_platform_and_congestion_bands(self):
         bars = []
@@ -77,9 +81,10 @@ class CoreTests(unittest.TestCase):
         zones = calculate_trade_zones(15.74, price_structure(bars), bars)
         self.assertEqual("13.80 - 15.20", zones["support_zone"])
         self.assertEqual("15.50 - 18.30", zones["play_zone"])
-        self.assertEqual("19.50 - 21.60", zones["pressure_zone"])
-        self.assertEqual("23.00 - 23.40", zones["strong_pressure_zone"])
-        self.assertIn("急拉结构", zones["zone_method"])
+        self.assertEqual("15.85 - 16.11", zones["pressure_zone"])
+        self.assertEqual("21.43 - 21.78", zones["second_pressure_zone"])
+        self.assertEqual("23.11 - 23.61", zones["strong_pressure_zone"])
+        self.assertIn("局部高点聚类", zones["zone_method"])
 
     def test_weekly_core_zones_and_daily_execution_are_separated(self):
         daily = sample_bars(80)
@@ -94,9 +99,12 @@ class CoreTests(unittest.TestCase):
         changed_daily[-1] = Bar(changed_daily[-1].timestamp, 24.0, 24.5, 25.0, 23.5, 3_000_000)
         second = calculate_trade_zones(price, price_structure(changed_daily), changed_daily, weekly)
         self.assertEqual("weekly_daily_hybrid", first["zone_timeframe"])
-        self.assertIn("已完成周K定核心", first["zone_method"])
+        self.assertIn("周K结构", first["zone_method"])
         self.assertEqual(first["support_zone"], second["support_zone"])
-        self.assertEqual(first["pressure_zone"], second["pressure_zone"])
+        self.assertEqual(first["zone_weekly_date"], second["zone_weekly_date"])
+        for zones in (first, second):
+            self.assertLess(zones["pressure_zone_high"], zones["second_pressure_low"])
+            self.assertLess(zones["second_pressure_high"], zones["strong_pressure_low"])
 
     def test_risk_output_is_advisory(self):
         bars = sample_bars(falling=True)
@@ -130,3 +138,4 @@ class CoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
